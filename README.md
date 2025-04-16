@@ -1,6 +1,6 @@
 # CS452 - Parallel Algorithms
 
-Language: C++
+Language: C++\
 Professor: Dr. Ankur Gupta
 
 ## Description
