@@ -1,99 +1,65 @@
 //CS452 Project 3: Clone Wars
 //Written by Anna Vadella, Noah Baker, Izzy Austin
 
+//Compile: mpicxx -o blah project3.cpp
+//Run: mpirun -np 4 blah
 #include <iostream>
-#include <fstream>
-#include <iomanip>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+#include <stdlib.h>
 #include <math.h>
+#include <iomanip>
+#include <cmath>
 #include "mpi.h"
+
 using namespace std;
 
-// Project Function Declarations
-void smergesort(int *, int, int, int *);
-void pmergesort(int *, int, int, int *);
+void mergesort(int *, int, int, int *);
 int Rank(int *, int, int, int);
-void smerge(int *, int *, int, int, int *);
+void smerge(int *, int, int, int *, int, int, int, int, int *);
 void pmerge(int *, int *, int, int, int *);
 
-// Helper Function Declarations
 void printArray(int *, int);
 bool isUnique(int *, int, int);
+void quickSort(int *, int, int);
+int partition(int a[], int, int);
 
-// Variable Declaration (Global)
 int my_rank;
 int p;
-int *output;
 
+int Rank(int * a, int first, int last, int valToFind) {
+    if (valToFind > a[last - 1]) {
+		return last;
+	}
 
-void smergesort(int *a, int first, int last, int *output = NULL) {
-    if (last - first < 1)
-        return;
+    if(last == 1) {	
+        if(valToFind <= a[0]) {
+			return 0;
+		}
+        else { 
+			return 1;
+		}
+    }
 
-    int middle = (first + last) / 2;
-
-    smergesort(a, first, middle, output);
-    smergesort(a, middle + 1, last, output);
-
-    smerge(&a[first], &a[middle + 1], middle - first, last - (middle + 1), &output[first]);
-
-    for (int i = first; i <= last; i++)
-        a[i] = output[i];
+    int middle = last/2;
+    if(valToFind <= a[middle - 1])
+        return Rank(&a[first], first, middle, valToFind);
+    else
+        return middle + Rank(&a[middle], 0, middle, valToFind);
 }
 
-void pmergesort(int *a, int first, int last, int *output = NULL) 
+void smerge(int * a, int firsta, int lasta, int * b, int firstb, int lastb, int firstoutput, int lastoutput, int * output = NULL) 
 {
-    if (last - first <= 32)
-    {
-        return;
-    }
-    int middle = (first + last) / 2;
-
-    pmergesort(a, first, middle, output);
-    pmergesort(a, middle + 1, last, output);
-
-    pmerge(&a[first], &a[middle + 1], middle - first, last - (middle + 1), &output[first]);
-
-    for (int i = first; i <= last; i++)
-        a[i] = output[i];
-}
-
-int Rank(int *a, int first, int last, int valToFind) {
-
-    if (valToFind > a[last]) {
-        return last;
-    }
-
-    if (first == last) {
-        if (valToFind <= a[first]) {
-            return 0;
-        }
-        else { return 1; }
-    }  
-
-    int middle = (first + last) / 2;
-
-    if (valToFind < a[middle+1]){
-        return Rank(a, first, middle, valToFind);
-    }
-    else{
-        return Rank(a, middle+1, last, valToFind);
-    }
-}
-
-
-void smerge(int *a, int *b, int lasta, int lastb, int *output = NULL) {
-    int i = 0;
-    int j = 0;
-    int k = 0;
-
-    while (i <= lasta && j <= lastb) {
+    int i = firsta;
+    int j = firstb;
+    int k = firstoutput;
+ 
+    while (i <= lasta && j <= lastb)
         if (a[i] < b[j])
             output[k++] = a[i++];
         else
             output[k++] = b[j++];
-    }
 
     while (i <= lasta)
         output[k++] = a[i++];
@@ -101,141 +67,91 @@ void smerge(int *a, int *b, int lasta, int lastb, int *output = NULL) {
         output[k++] = b[j++];
 }
 
-void pmerge(int *a, int *b, int lasta, int lastb, int *output = NULL) {
-    int totarraySize = lasta + lastb + 1;
-    //cout << "Size: " << totarraySize << endl;
-    int logn = ceil(log2(totarraySize/2)); //log n for index of entire array
-    //cout << "Log of size: " << logn << endl;
-    int numRank = ceil((double)(totarraySize/2)/(logn)); // logn*p
-	//cout << "numRank: " << numRank << endl;
+void pmerge(int * a, int * b, int lasta, int lastb, int * output = NULL) {
 
+	int totalArraySize = lasta + lastb + 1;
+    int logn = log2(totalArraySize/2); //Value for indexing through arrays so we only calculate specific ranks
+    int partition = ceil((double)(totalArraySize/2)/logn); //size of the array for each rank/srank			
 
-	int * WIN = new int[totarraySize+1];
-	int * endpointsA = new int[(numRank * 2)+ 2];
-    int * endpointsB = new int[(numRank * 2)+ 2];
-    int * finalendpointsA = new int[totarraySize];
-    int * finalendpointsB = new int[totarraySize];
-    int * localWIN = new int[totarraySize+1];
-	int * srankA = new int[(numRank * 2)+ 2];
-	int * srankB = new int[(numRank * 2)+ 2];
+    int * localWIN = new int[totalArraySize];
+    int * localendpointsA = new int[partition * 2 + 1]; 
+    int * localendpointsB = new int[partition * 2 + 1];
 
-
-	for(int i = 0; i <= (numRank * 2)+ 2 ; i++)
-	{   
-        srankA[i] = 0;
-        srankB[i] = 0;
+    int * WIN = new int[totalArraySize];
+    int * endpointsA = new int [partition * 2 + 1];
+    int * endpointsB = new int [partition * 2 + 1];
+	
+	//Making all zero so MPI_allreduce works woth MPI_MAX
+	for(int i = 0; i < partition * 2 + 1; i++) {   
 		endpointsA[i] = 0;
 		endpointsB[i] = 0;
-        finalendpointsA[i] = 0;
-        finalendpointsB[i] = 0;
+        localendpointsA[i] = 0;
+        localendpointsB[i] = 0;
 	}
 	
-	for(int i = 0; i < totarraySize+1; i++)
-	{
+	for(int i = 0; i < totalArraySize; i++) {
 		localWIN[i] = 0;
         WIN[i] = 0;
 	} 
-
-    for (int i = 0; i < numRank; i++) {
-        srankA[i] = i * logn;
-        srankB[i] = i * logn;
-    }
-    srankA[numRank] = totarraySize/2;
-    srankB[numRank] = totarraySize/2;
-    
-    for (int i = my_rank; i < numRank; i += p) {
-        srankA[i + (numRank + 1)] = Rank(b, 0, lastb, a[i * logn]); //SRANKB
-        srankB[i + (numRank + 1)] = Rank(a, 0, lasta, b[i * logn]); //SRANKA
-    }
-    srankA[(numRank * 2) + 1] = Rank(b, 0, totarraySize/2, a[totarraySize/2]);
-    srankB[(numRank * 2) + 1] = Rank(a, 0, totarraySize/2, b[totarraySize/2]);
-
-
-    MPI_Allreduce(srankA, endpointsA, (numRank * 2) + 2, MPI_INT, MPI_MAX, MPI_COMM_WORLD); 
-    MPI_Allreduce(srankB, endpointsB, (numRank * 2) + 2, MPI_INT, MPI_MAX, MPI_COMM_WORLD); 
-
-    /*if(my_rank == 0) {
-        cout << "endpointsA: ";
-        printArray(endpointsA, (numRank * 2) + 2);
-        cout << "endpointsB: ";
-        printArray(endpointsB, (numRank * 2) + 2);
-        cout << endl;
-    }*/
-
-    smerge(&endpointsA[0], &endpointsA[numRank+1], numRank, numRank, finalendpointsA);
-    smerge(&endpointsB[0], &endpointsB[numRank+1], numRank, numRank, finalendpointsB);
-
-    /*if(my_rank == 0) {
-        cout << "sorted new endpointsA: ";
-        printArray(finalendpointsA, (numRank * 2) + 2);
-        cout << "sorted new endpointsB: ";
-        printArray(finalendpointsB, (numRank * 2) + 2);
-        cout << endl;
-    }*/
-
-    int distanceA = 0;
-    int distanceB = 0;
-    int totaldistance = 0;
-    
-    for (int i = my_rank; i < (numRank * 2) + 2; i += p) {
-        distanceB = finalendpointsA[i + 1] - finalendpointsA[i];
-        distanceA = finalendpointsB[i + 1] - finalendpointsB[i];
-        totaldistance = finalendpointsA[i] + finalendpointsB[i];
-        smerge(&a[finalendpointsB[i]], &b[finalendpointsA[i]], distanceA, distanceB, &localWIN[totaldistance]);    
-    }
-
-    /*if(my_rank == 0)
-    {
-        cout << my_rank << endl;
-        cout<< "New values added to array" << endl;
-        printArray(localWIN, totarraySize+1); 
-    }
-    else if(my_rank == 1)
-    {
-        cout << my_rank << endl;
-        cout<< "New values added to array" << endl;
-        printArray(localWIN, totarraySize+1); 
-    }
-    else if(my_rank == 2)
-    {
-        cout << my_rank << endl;
-        cout<< "New values added to array" << endl;
-        printArray(localWIN, totarraySize+1); 
-    }
-    else if(my_rank == 3)
-    {
-        cout << my_rank << endl;
-        cout<< "New values added to array" << endl;
-        printArray(localWIN, totarraySize+1); 
-    }*/
-	  
-	MPI_Allreduce(&localWIN[0], &WIN[0], totarraySize+1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
-
-	if(my_rank == 0) {
-		cout << "Output pmerge array after all reduce: ";
-		printArray(WIN, totarraySize+1);
-		cout << endl;
-	}
 	
-	//Deleting dynamically allocated arrays	
-	delete [] WIN;
-    delete [] endpointsA;
-    delete [] endpointsB;
-    delete [] srankA;
-    delete [] srankB;
-    delete [] finalendpointsA;
-    delete [] finalendpointsB;
-    delete [] localWIN;
+    for (int i = my_rank; i < partition; i += p) { //striping
+        int first = 0;
+        int last = totalArraySize/2;
+
+        localendpointsA[i] = Rank(a, first, last, b[i * logn]);
+        localendpointsA[i + partition] = i * logn;
+        localendpointsB[i] = Rank(b, first, last, a[i * logn]);
+        localendpointsB[i + partition] = i * logn;
+    }
+
+	MPI_Allreduce(localendpointsA, endpointsA, partition * 2, MPI_INT, MPI_SUM, MPI_COMM_WORLD);  //Give every processor endpoints  
+    MPI_Allreduce(localendpointsB, endpointsB, partition * 2, MPI_INT, MPI_SUM, MPI_COMM_WORLD); 
+    MPI_Allreduce(localWIN, WIN, totalArraySize, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+	
+	//Add the final endpoint which is just the last spot of the array
+    endpointsA[partition * 2] = totalArraySize/2;
+    endpointsB[partition * 2] = totalArraySize/2; 
+
+    //sort endpoints to define shapes
+    quickSort(endpointsA, 0, partition * 2 - 1);
+    quickSort(endpointsB, 0, partition * 2 - 1);
+
+    for(int i = my_rank; i < partition * 2; i+= p) //striping
+		//using shapes, smerge the final array so its sorted.
+        smerge(a, endpointsA[i], endpointsA[i + 1] - 1, b, endpointsB[i], endpointsB[i + 1] - 1, endpointsA[i] + endpointsB[i], endpointsB[i + 1] + endpointsB[i + 1], localWIN);
+
+    MPI_Allreduce(localWIN, WIN, totalArraySize, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+
+    for (int i = 0; i < totalArraySize; i++) {
+        a[i] = WIN[i];
+    }
+
+	//printing out final array
+    if (my_rank == 0) {
+        cout << "WIN: ";
+        printArray(WIN, totalArraySize);
+        cout << endl;
+    }
 }
 
-void printArray(int *a, int size) {
+void mergesort(int * a, int first, int last, int * output = NULL) {
+    if (last <= 4)
+        quickSort(a, first, last - 1);
+    else {
+        mergesort(a, first, last/2);
+        mergesort(&a[last/2], first, last/2);
+        pmerge(a, &a[last/2], first, last - 1, output);
+    }
+}
+
+void printArray(int * a, int size) {
     for (int i = 0; i < size; i++) {
         cout << a[i] << " ";
     }
     cout << endl;
 }
 
-bool isUnique(int *a, int b, int entry) {
+bool isUnique(int * a, int b, int entry) {
     for (int i = 0; i < b; i++)
         if (a[i] == entry)
             return false;
@@ -244,15 +160,47 @@ bool isUnique(int *a, int b, int entry) {
     return true;
 }
 
-int main(int argc, char *argv[]) {
-    int source;
-    int dest;
-    int tag = 0;
-    MPI_Status status;
+int partition(int a[], int first, int last)
+{
+    int pivot = a[last];
+    int i = (first - 1);
 
-    MPI_Init(&argc, &argv);
-    MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &p);
+    for (int j = first; j <= last - 1; j++) {
+        if (a[j] <= pivot) {
+            i++;
+            int temp = a[i];
+            a[i] = a[j];
+            a[j] = temp;
+        }
+    }
+
+    int temp = a[i + 1];
+    a[i + 1] = a[last];
+    a[last] = temp;
+
+    return (i + 1);
+}
+
+void quickSort(int a[], int first, int last) {
+    if (first < last)
+    {
+        int partitionIndex = partition(a, first, last);
+        quickSort(a, first, partitionIndex - 1);
+        quickSort(a, partitionIndex + 1, last);
+    }
+}
+
+int main (int argc, char * argv[]) {
+    int source;                					//Rank of the sender
+    int dest;                					//Rank of destination
+    int tag = 0;            					//message number
+    char message[100];        					//message itself
+    MPI_Status status;        					//return status for receive
+
+    //Start MPI
+    MPI_Init(&argc, &argv);     				//sets up processor
+    MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);    //finds the Rank and populates that variable
+    MPI_Comm_size(MPI_COMM_WORLD, &p);			//find out the number of processes
 
     int arraySize = 0;
 
@@ -264,38 +212,30 @@ int main(int argc, char *argv[]) {
     MPI_Bcast(&arraySize, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
     int * userArray = new int[arraySize];
-    int * outputArray = new int[arraySize];
+    int * a = &userArray[0];
+    int * b = &userArray[arraySize/2];
 
     if (my_rank == 0) {
-        srand(time(0));
+        srand(time(NULL));
         for (int i = 0; i < arraySize; i++) {
-            int arrayEntry =  1 + (rand() % 500); //had a plus 1
-            while (!isUnique(userArray, i, arrayEntry))
-                arrayEntry =  1 + (rand() % 500); //had a plus 1
+            int arrayEntry = 1 + (rand() % 500);
+            while (!isUnique(userArray, i, arrayEntry)) //isUnique also adds to the array
+                arrayEntry = 1 + (rand() % 500);
         }
-
-        cout << "Unsorted Array:" << endl;
-        printArray(userArray, arraySize);
-
-        smergesort(userArray, 0, (arraySize/2)-1, outputArray);
-        smergesort(userArray, arraySize/2, arraySize-1, outputArray);
     }
+	
+	if (my_rank == 0) {
+		cout << "Unsorted Array: " << endl;
+		printArray(userArray, arraySize);
+	} 
+    MPI_Bcast(userArray, arraySize, MPI_INT, 0, MPI_COMM_WORLD); //Broadcasts array to each processor
 
-    MPI_Bcast(userArray, arraySize, MPI_INT, 0, MPI_COMM_WORLD);
-    pmergesort(userArray, 0, arraySize - 1, outputArray);
+    mergesort(userArray, 0, arraySize);
 
-    delete[] userArray;
-    delete[] outputArray;
-
+	delete [] userArray;
+	
+    //Shut down MPI
     MPI_Finalize();
 
     return 0;
 }
-
-    //striping here get the sizes of the first 2, calculates distance, than determines the smerge stuff
-    //based on that information, instead of basing this on permission
-    //Gupta doesnt like partition. I think shapearraySize is also bad. 
-    // Kill the shapes array, because it is clearly dumb.
-    //shapes require 4 points to work with
-    //smerge(&endpointsA[0], &endpointsA[partition], partition-1, (partition * 2) - 1, &shapes[0]);
-    //smerge(&endpointsB[0], &endpointsB[partition], partition-1, (partition * 2) - 1, &shapes[partition*2]); 
